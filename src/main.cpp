@@ -15,12 +15,15 @@
 #include "font5x7.hpp"
 
 // ── Pin definitions ──────────────────────────────────────────────────────────
-static constexpr uint8_t PIN_SCK  = 18;
-static constexpr uint8_t PIN_MOSI = 19;
-static constexpr uint8_t PIN_CS   = 17;
-static constexpr uint8_t PIN_DC   = 16;
-static constexpr uint8_t PIN_RST  = 20;
-static constexpr uint8_t PIN_BL   = 15;
+static constexpr uint8_t PIN_SCK    = 18;
+static constexpr uint8_t PIN_MOSI   = 19;
+static constexpr uint8_t PIN_CS     = 17;
+static constexpr uint8_t PIN_DC     = 16;
+static constexpr uint8_t PIN_RST    = 20;
+static constexpr uint8_t PIN_BL     = 12;
+static constexpr uint8_t PIN_LEFT   = 13;
+static constexpr uint8_t PIN_RIGHT  = 15;
+static constexpr uint8_t PIN_FIRE   = 14;
 
 // ── Global display object ────────────────────────────────────────────────────
 ILI9163C tft(spi0, PIN_SCK, PIN_MOSI, PIN_CS, PIN_DC, PIN_RST, PIN_BL);
@@ -208,6 +211,20 @@ static void demo_rotation() {
     tft.setRotation(Rotation::Deg0);
 }
 
+static void init_keys() {
+    gpio_init(PIN_RIGHT);
+    gpio_set_dir(PIN_RIGHT, GPIO_IN);
+    gpio_pull_up(PIN_RIGHT);
+
+    gpio_init(PIN_LEFT);
+    gpio_set_dir(PIN_LEFT, GPIO_IN);
+    gpio_pull_up(PIN_LEFT);
+
+    gpio_init(PIN_FIRE);
+    gpio_set_dir(PIN_FIRE, GPIO_IN);
+    gpio_pull_up(PIN_FIRE);
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 //  Entry point
 // ─────────────────────────────────────────────────────────────────────────────
@@ -220,14 +237,51 @@ int main() {
     tft.begin();
     tft.setBacklight(true);
 
+    printf("Setting up key GPIOs\n");
+    init_keys();
+
+    uint8_t sequence = 0;
+
     while (true) {
-        printf("Primitives demo\n");  demo_primitives();
-        printf("Circles demo\n");     demo_circles();
-        printf("Lines demo\n");       demo_lines();
-        printf("Triangles demo\n");   demo_triangles();
-        printf("Round rects demo\n"); demo_roundrects();
-        printf("Text demo\n");        demo_text();
-        printf("Bitmap demo\n");      demo_bitmap();
-        printf("Rotation demo\n");    demo_rotation();
+        if (!gpio_get(PIN_LEFT)) {
+            if (sequence == 0 ) {
+                sequence = 7;
+            } else {
+                sequence = (sequence - 1) % 7;
+            }
+        } else if (!gpio_get(PIN_RIGHT)) {
+            sequence = (sequence + 1) % 7;
+        } else if (!gpio_get(PIN_FIRE)) {
+            sequence = 0;
+        }
+        switch (sequence) {
+            case 0:
+                printf("Primitives demo\n");  demo_primitives();
+                break;
+            case 1:
+                printf("Circles demo\n");     demo_circles();
+                break;
+            case 2:
+                printf("Lines demo\n");       demo_lines();
+                break;
+            case 3:
+                printf("Triangles demo\n");   demo_triangles();
+                break;
+            case 4:
+                printf("Round rects demo\n"); demo_roundrects();
+                break;
+            case 5:
+                printf("Text demo\n");        demo_text();
+                break;
+            case 6:
+                printf("Bitmap demo\n");      demo_bitmap();
+                break;
+            case 7:
+                printf("Rotation demo\n");    demo_rotation();
+                break;
+            default:
+                printf("Unknown section");
+                break;
+        }
     }
 }
