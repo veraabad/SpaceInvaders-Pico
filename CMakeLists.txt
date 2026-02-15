@@ -3,6 +3,9 @@ cmake_minimum_required(VERSION 3.13)
 # Set board to Pico 2
 set(PICO_BOARD pico2_w)
 
+# Generate compile_commands.json
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
 # initialize the SDK directly
 include(/Users/abadvera/repos/pico-sdk/pico_sdk_init.cmake)
 
