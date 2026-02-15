@@ -130,7 +130,7 @@ class ILI9163C {
 public:
     // ── physical panel size ─────────────────────────────────────────────
     static constexpr uint16_t DISPLAY_WIDTH  = 128;
-    static constexpr uint16_t DISPLAY_HEIGHT = 128;
+    static constexpr uint16_t DISPLAY_HEIGHT = 160;
 
     /**
      * @brief Construct an ILI9163C driver.
