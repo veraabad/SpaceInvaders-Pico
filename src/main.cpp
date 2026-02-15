@@ -211,6 +211,11 @@ static void demo_rotation() {
     tft.setRotation(Rotation::Deg0);
 }
 
+static void clear_screen() {
+    tft.fillScreen(Color::rgb(0, 128, 0));
+    sleep_ms(2000);
+}
+
 static void init_keys() {
     gpio_init(PIN_RIGHT);
     gpio_set_dir(PIN_RIGHT, GPIO_IN);
@@ -245,38 +250,41 @@ int main() {
     while (true) {
         if (!gpio_get(PIN_LEFT)) {
             if (sequence == 0 ) {
-                sequence = 7;
+                sequence = 8;
             } else {
-                sequence = (sequence - 1) % 7;
+                sequence = (sequence - 1) % 8;
             }
         } else if (!gpio_get(PIN_RIGHT)) {
-            sequence = (sequence + 1) % 7;
+            sequence = (sequence + 1) % 8;
         } else if (!gpio_get(PIN_FIRE)) {
             sequence = 0;
         }
         switch (sequence) {
             case 0:
-                printf("Primitives demo\n");  demo_primitives();
+                printf("Game Screen\n");  clear_screen();
                 break;
             case 1:
-                printf("Circles demo\n");     demo_circles();
+                printf("Primitives demo\n");  demo_primitives();
                 break;
             case 2:
-                printf("Lines demo\n");       demo_lines();
+                printf("Circles demo\n");     demo_circles();
                 break;
             case 3:
-                printf("Triangles demo\n");   demo_triangles();
+                printf("Lines demo\n");       demo_lines();
                 break;
             case 4:
-                printf("Round rects demo\n"); demo_roundrects();
+                printf("Triangles demo\n");   demo_triangles();
                 break;
             case 5:
-                printf("Text demo\n");        demo_text();
+                printf("Round rects demo\n"); demo_roundrects();
                 break;
             case 6:
-                printf("Bitmap demo\n");      demo_bitmap();
+                printf("Text demo\n");        demo_text();
                 break;
             case 7:
+                printf("Bitmap demo\n");      demo_bitmap();
+                break;
+            case 8:
                 printf("Rotation demo\n");    demo_rotation();
                 break;
             default:
