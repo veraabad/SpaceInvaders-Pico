@@ -79,6 +79,7 @@ int main() {
     sprites::initializeAliens();
 
     size_t credit_y = buffer.getHeight() - sprites::TEXT_SPRITESHEET.height - 7;
+    size_t credit_x = buffer.getWidth() - (sprites::TEXT_SPRITESHEET.width * 9) - 10;
 
     data::Game game;
     game.width = buffer.getWidth();
@@ -105,6 +106,8 @@ int main() {
             alien.y = 16 * yi + (2 * sprites::TEXT_SPRITESHEET.height + 18);
         }
     }
+    size_t score_x = 4 + 2 * sprites::NUMBER_SPRITESHEET.width;
+    size_t score_y = 2 * sprites::NUMBER_SPRITESHEET.height + 6;
 
     std::vector<uint8_t> deathCounters(game.numAliens, 10);
 
@@ -125,13 +128,13 @@ int main() {
 
         buffer.drawNumber(
             sprites::NUMBER_SPRITESHEET, score,
-            4 + 2 * sprites::NUMBER_SPRITESHEET.width, 2 * sprites::NUMBER_SPRITESHEET.height + 6,
+            score_x, score_y,
             Color::rgb(128, 0, 0)
         );
 
         buffer.drawText(
             sprites::TEXT_SPRITESHEET, "CREDIT 00",
-            game.width - (sprites::TEXT_SPRITESHEET.width * 9) - 10, credit_y,
+            credit_x, credit_y,
             Color::rgb(128, 0, 0)
         );
 
