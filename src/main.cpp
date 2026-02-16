@@ -81,24 +81,26 @@ int main() {
     data::Game game;
     game.width = buffer.getWidth();
     game.height = buffer.getHeight();
-    game.numAliens = 55;
+    game.numAliens = 40;
+    game.rowAliens = 5;
+    game.colAliens = 8;
     game.numBullets = 0;
     game.aliens = std::vector<data::Alien>(game.numAliens);
 
-    game.player.x = 112 - 5;
+    game.player.x = (buffer.getWidth() / 2) - 5;
     game.player.y = 32;
 
     game.player.life = 3;
 
-    for (size_t yi = 0; yi < 5; ++yi) {
-        for (size_t xi = 0; xi < 11; ++xi) {
-            data::Alien& alien = game.aliens[yi * 11 + xi];
-            alien.type = (5 - yi) / 2 + 1;
+    for (size_t yi = 0; yi < game.rowAliens; ++yi) {
+        for (size_t xi = 0; xi < game.colAliens; ++xi) {
+            data::Alien& alien = game.aliens[yi * game.colAliens + xi];
+            alien.type = (game.rowAliens - yi) / 2 + 1;
 
             const data::Sprite& sprite = sprites::ALIEN_SPRITES[2 * (alien.type - 1)];
 
-            alien.x = 16 * xi + 20 + (sprites::ALIEN_DEATH_SPRITE.width - sprite.width) / 2;
-            alien.y = 17 * yi + 128;
+            alien.x = 14 * xi + 8 + (sprites::ALIEN_DEATH_SPRITE.width - sprite.width) / 2;
+            alien.y = 16 * yi + ((buffer.getHeight() / 2) - 2 * sprites::TEXT_SPRITESHEET.height - 12);
         }
     }
 

@@ -103,6 +103,8 @@ struct Bullet final: Location
  *
  * @var numAliens Number of active aliens.
  * @var numBullets Number of active bullets.
+ * @var rowAliens Number of rows for aliens.
+ * @var colAliens Number of columns for alieans.
  * @var aliens Vector of alien entities.
  * @var player The player entity.
  * @var bullets Array of bullet entities, limited by GAME_MAX_BULLETS.
@@ -111,6 +113,8 @@ struct Game final: Rectangle
 {
     size_t numAliens;
     size_t numBullets;
+    uint16_t rowAliens;
+    uint16_t colAliens;
     std::vector<Alien> aliens;
     Player player;
     Bullet bullets[GAME_MAX_BULLETS];
