@@ -1,7 +1,6 @@
 #pragma once
 
 #include <cstdint>
-#include <GLFW/glfw3.h>
 #include "data/data.hpp"
 
 namespace util {
@@ -15,22 +14,6 @@ namespace util {
  * @return uint32_t Packed color value in RGBA format with full opacity.
  */
 uint32_t rgbToUint32(uint8_t r, uint8_t g, uint8_t b);
-
-/**
- * @brief Validates a shader and prints any compilation errors.
- *
- * @param shader OpenGL shader ID to validate.
- * @param file Optional filename for error reporting (default: 0).
- */
-void validateShader(GLuint shader, const char* file = 0);
-
-/**
- * @brief Validates an OpenGL shader program and reports linking errors.
- *
- * @param program OpenGL program ID to validate.
- * @return bool True if program is valid, false if linking errors occurred.
- */
-bool validateProgram(GLuint program);
 
 /**
  * @brief Checks if two sprites overlap based on their positions and dimensions.
