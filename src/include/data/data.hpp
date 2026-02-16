@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <vector>
 #include <algorithm>
+#include <memory>
 
 namespace data {
 
@@ -168,9 +169,9 @@ public:
      * @param width Width of the buffer in pixels.
      * @param height Height of the buffer in pixels.
      */
-    Buffer(size_t width, size_t height) : width(width), height(height)
+    Buffer(uint16_t width, uint16_t height) : width(width), height(height)
     {
-        data = std::vector<uint32_t>(width * height, 0);
+        data = std::vector<uint16_t>(width * height, 0);
     }
 
     /**
@@ -203,7 +204,7 @@ public:
      *
      * @return Pointer to the beginning of the pixel data array.
      */
-    uint32_t* getData()
+    uint16_t* getData()
     {
         return data.data();
     }
@@ -213,7 +214,7 @@ public:
      *
      * @return Reference to the std::vector containing pixel data.
      */
-    std::vector<uint32_t>& getVector()
+    std::vector<uint16_t>& getVector()
     {
         return data;
     }
@@ -223,7 +224,7 @@ public:
      *
      * @param color 32-bit RGBA color value to fill the buffer with.
      */
-    void clear(uint32_t color)
+    void clear(uint16_t color)
     {
         std::fill(data.begin(), data.end(), color);
     }
@@ -238,7 +239,7 @@ public:
      */
     void drawSprite(
         const Sprite& sprite,
-        size_t x, size_t y, uint32_t color
+        size_t x, size_t y, uint16_t color
     ){
         for (size_t xi = 0; xi < sprite.width; ++xi) {
             for (size_t yi = 0; yi < sprite.height; ++yi) {
@@ -265,7 +266,7 @@ public:
         const data::Sprite& textSpritesheet,
         const char* text,
         size_t x, size_t y,
-        uint32_t color)
+        uint16_t color)
     {
         size_t xp = x;
         size_t stride = textSpritesheet.width * textSpritesheet.height;
@@ -293,7 +294,7 @@ public:
     void drawNumber(
         const data::Sprite& numberSpritesheet, size_t number,
         size_t x, size_t y,
-        uint32_t color
+        uint16_t color
     ){
         uint8_t digits[64];
         size_t num_digits = 0;
@@ -318,7 +319,7 @@ public:
 private:
     size_t width;
     size_t height;
-    std::vector<uint32_t> data;
+    std::vector<uint16_t> data;
 };
 
 } // data
