@@ -32,6 +32,10 @@ static constexpr uint8_t PIN_FIRE   = 14;
 
 // ── Global display object ────────────────────────────────────────────────────
 ILI9163C tft(spi0, PIN_SCK, PIN_MOSI, PIN_CS, PIN_DC, PIN_RST, PIN_BL);
+bool gameRunning = false;
+int moveDir = 0;
+bool firePressed = 0;
+size_t score = 0;
 
 static void clear_screen(data::Buffer* buffer) {
     buffer->clear(Color::rgb(0, 128, 0));
@@ -70,6 +74,170 @@ int main() {
 
     // Game display buffer
     data::Buffer buffer(ILI9163C::DISPLAY_WIDTH, ILI9163C::DISPLAY_HEIGHT);
+
+    // Prepare game
+    sprites::initializeAliens();
+
+    data::Game game;
+    game.width = buffer.getWidth();
+    game.height = buffer.getHeight();
+    game.numAliens = 55;
+    game.numBullets = 0;
+    game.aliens = std::vector<data::Alien>(game.numAliens);
+
+    game.player.x = 112 - 5;
+    game.player.y = 32;
+
+    game.player.life = 3;
+
+    for (size_t yi = 0; yi < 5; ++yi) {
+        for (size_t xi = 0; xi < 11; ++xi) {
+            data::Alien& alien = game.aliens[yi * 11 + xi];
+            alien.type = (5 - yi) / 2 + 1;
+
+            const data::Sprite& sprite = sprites::ALIEN_SPRITES[2 * (alien.type - 1)];
+
+            alien.x = 16 * xi + 20 + (sprites::ALIEN_DEATH_SPRITE.width - sprite.width) / 2;
+            alien.y = 17 * yi + 128;
+        }
+    }
+
+    std::vector<uint8_t> deathCounters(game.numAliens, 10);
+
+    uint16_t clearColor = Color::rgb(0, 128, 0);
+
+    gameRunning = true;
+
+    int playerMoveDir = 0;
+    // Game loop
+    while (true) {
+        buffer.clear(clearColor);
+
+        buffer.drawText(
+            sprites::TEXT_SPRITESHEET, "SCORE",
+            4, game.height - sprites::TEXT_SPRITESHEET.height - 7,
+            Color::rgb(128, 0, 0)
+        );
+
+        buffer.drawNumber(
+            sprites::NUMBER_SPRITESHEET, score,
+            4 + 2 * sprites::NUMBER_SPRITESHEET.width, game.height - 2 * sprites::NUMBER_SPRITESHEET.height - 12,
+            Color::rgb(128, 0, 0)
+        );
+
+        buffer.drawText(
+            sprites::TEXT_SPRITESHEET, "CREDIT 00",
+            164, 7,
+            Color::rgb(128, 0, 0)
+        );
+
+        // Line at bottom
+        for (size_t i = 0; i < game.width; ++i) {
+            buffer.getVector()[game.width * 16 + i] = Color::rgb(128, 0, 0);
+        }
+
+        // Draw aliens
+        for (size_t ai = 0; ai < game.numAliens; ++ai) {
+            if (!deathCounters[ai]) {
+                // Dead alien; don't draw
+                continue;
+            }
+
+            const data::Alien& alien = game.aliens[ai];
+            if (alien.type == data::ALIEN_DEAD) {
+                buffer.drawSprite(sprites::ALIEN_DEATH_SPRITE, alien.x, alien.y, Color::rgb(128, 0, 0));
+            } else {
+                const data::SpriteAnimation& animation = sprites::ALIEN_ANIMATIONS[alien.type - 1];
+                size_t current_frame = animation.time / animation.frameDuration;
+                const data::Sprite& sprite = *animation.frames[current_frame];
+                buffer.drawSprite(sprite, alien.x, alien.y, Color::rgb(128, 0, 0));
+            }
+        }
+
+        // Draw bullets
+        for (size_t bi = 0; bi < game.numBullets; ++bi) {
+            const data::Bullet& bullet = game.bullets[bi];
+            const data::Sprite& sprite = sprites::BULLET_SPRITE;
+            buffer.drawSprite(sprite, bullet.x, bullet.y, Color::rgb(128, 0, 0));
+        }
+
+        // Draw player
+        buffer.drawSprite(sprites::PLAYER_SPRITE, game.player.x, game.player.y, Color::rgb(128, 0, 0));
+
+        // Update animations
+        for (size_t i = 0; i < 3; ++i) {
+            ++sprites::ALIEN_ANIMATIONS[i].time;
+            if (sprites::ALIEN_ANIMATIONS[i].time == sprites::ALIEN_ANIMATIONS[i].numFrames * sprites::ALIEN_ANIMATIONS[i].frameDuration) {
+                sprites::ALIEN_ANIMATIONS[i].time = 0;
+            }
+        }
+
+        tft.drawBuffer(&buffer);
+
+        // Update deathCounters
+        for (size_t ai = 0; ai < game.numAliens; ++ai) {
+            const data::Alien& alien = game.aliens[ai];
+            if (alien.type == data::ALIEN_DEAD && deathCounters[ai]) {
+                --deathCounters[ai];
+            }
+        }
+
+        // Set direction of bullets
+        for (size_t bi = 0; bi < game.numBullets;) {
+            game.bullets[bi].y += game.bullets[bi].dir;
+            if (game.bullets[bi].y >= game.height || game.bullets[bi].y < sprites::BULLET_SPRITE.height) {
+                game.bullets[bi] = game.bullets[game.numBullets - 1];
+                --game.numBullets;
+                continue;
+            }
+            // Check for alien collision
+            for (size_t ai = 0; ai < game.numAliens; ++ai) {
+                const data::Alien& alien = game.aliens[ai];
+                if (alien.type == data::ALIEN_DEAD) {
+                    continue;
+                }
+                const data::SpriteAnimation& animation = sprites::ALIEN_ANIMATIONS[alien.type - 1];
+                size_t current_frame = animation.time / animation.frameDuration;
+                const data::Sprite& alien_sprite = *animation.frames[current_frame];
+                bool overlap = util::spriteOverlapCheck(
+                    sprites::BULLET_SPRITE, game.bullets[bi].x, game.bullets[bi].y,
+                    alien_sprite, alien.x, alien.y
+                );
+                if (overlap) {
+                    score += 10 * (4 - game.aliens[ai].type);
+                    game.aliens[ai].type = data::ALIEN_DEAD;
+                    game.aliens[ai].x -= (sprites::ALIEN_DEATH_SPRITE.width - alien_sprite.width) / 2;
+                    game.bullets[bi] = game.bullets[game.numBullets - 1];
+                    --game.numBullets;
+                    continue;
+                }
+            }
+
+            ++bi;
+        }
+
+        playerMoveDir = 2 * moveDir;
+
+        if (playerMoveDir != 0) {
+            if (game.player.x + sprites::PLAYER_SPRITE.width + playerMoveDir >= game.width) {
+                game.player.x = game.width - sprites::PLAYER_SPRITE.width;
+            } else if ((int)game.player.x + playerMoveDir <= 0) {
+                game.player.x = 0;
+            } else {
+                game.player.x += playerMoveDir;
+            }
+        }
+
+        if (firePressed && game.numBullets < GAME_MAX_BULLETS) {
+            game.bullets[game.numBullets].x = game.player.x + sprites::PLAYER_SPRITE.width / 2;
+            game.bullets[game.numBullets].y = game.player.y + sprites::PLAYER_SPRITE.height;
+            game.bullets[game.numBullets].dir = 2;
+            ++game.numBullets;
+        }
+        firePressed = false;
+
+        // TODO: add polling for key press
+    }
 
     uint8_t sequence = 0;
 

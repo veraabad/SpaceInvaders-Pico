@@ -35,6 +35,8 @@ target_link_libraries(ili9163c PUBLIC
 # ── Example executable ────────────────────────────────────────────────────────
 add_executable(space_invaders_pico
     src/main.cpp
+    src/utility.cpp
+    src/sprites.cpp
 )
 
 target_link_libraries(space_invaders_pico
