@@ -35,6 +35,9 @@ bool game_running = false;
 int move_dir = 0;
 bool fire_pressed = 0;
 size_t score = 0;
+static bool prev_left  = true;   // true = not pressed (pull-up logic)
+static bool prev_right = true;
+static bool prev_fire  = true;
 
 static void init_keys() {
     gpio_init(PIN_RIGHT);
@@ -51,15 +54,26 @@ static void init_keys() {
 }
 
 static void poll_keys() {
-    if (!gpio_get(PIN_LEFT)) {
+    bool curr_left  = gpio_get(PIN_LEFT);
+    bool curr_right = gpio_get(PIN_RIGHT);
+    bool curr_fire  = gpio_get(PIN_FIRE);
+
+    // Trigger on release: button was low (pressed), now high (released)
+    if (!prev_left && curr_left) {
         move_dir = -1;
-    } else if (!gpio_get(PIN_RIGHT)) {
+    } else if (!prev_right && curr_right) {
         move_dir = 1;
-    } else if (!gpio_get(PIN_FIRE)) {
-        fire_pressed = true;
     } else {
         move_dir = 0;
     }
+
+    if (!prev_fire && curr_fire) {
+        fire_pressed = true;
+    }
+
+    prev_left  = curr_left;
+    prev_right = curr_right;
+    prev_fire  = curr_fire;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
