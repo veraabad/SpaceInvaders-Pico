@@ -78,6 +78,8 @@ int main() {
     // Prepare game
     sprites::initializeAliens();
 
+    size_t credit_y = buffer.getHeight() - sprites::TEXT_SPRITESHEET.height - 7;
+
     data::Game game;
     game.width = buffer.getWidth();
     game.height = buffer.getHeight();
@@ -88,7 +90,7 @@ int main() {
     game.aliens = std::vector<data::Alien>(game.numAliens);
 
     game.player.x = (buffer.getWidth() / 2) - 5;
-    game.player.y = 32;
+    game.player.y = credit_y - 20;
 
     game.player.life = 3;
 
@@ -100,7 +102,7 @@ int main() {
             const data::Sprite& sprite = sprites::ALIEN_SPRITES[2 * (alien.type - 1)];
 
             alien.x = 14 * xi + 8 + (sprites::ALIEN_DEATH_SPRITE.width - sprite.width) / 2;
-            alien.y = 16 * yi + ((buffer.getHeight() / 2) - 2 * sprites::TEXT_SPRITESHEET.height - 12);
+            alien.y = 16 * yi + (2 * sprites::TEXT_SPRITESHEET.height + 18);
         }
     }
 
@@ -117,25 +119,25 @@ int main() {
 
         buffer.drawText(
             sprites::TEXT_SPRITESHEET, "SCORE",
-            4, game.height - sprites::TEXT_SPRITESHEET.height - 7,
+            4, sprites::TEXT_SPRITESHEET.height,
             Color::rgb(128, 0, 0)
         );
 
         buffer.drawNumber(
             sprites::NUMBER_SPRITESHEET, score,
-            4 + 2 * sprites::NUMBER_SPRITESHEET.width, game.height - 2 * sprites::NUMBER_SPRITESHEET.height - 12,
+            4 + 2 * sprites::NUMBER_SPRITESHEET.width, 2 * sprites::NUMBER_SPRITESHEET.height + 6,
             Color::rgb(128, 0, 0)
         );
 
         buffer.drawText(
             sprites::TEXT_SPRITESHEET, "CREDIT 00",
-            164, 7,
+            game.width - (sprites::TEXT_SPRITESHEET.width * 9) - 10, credit_y,
             Color::rgb(128, 0, 0)
         );
 
         // Line at bottom
         for (size_t i = 0; i < game.width; ++i) {
-            buffer.getVector()[game.width * 16 + i] = Color::rgb(128, 0, 0);
+            buffer.getVector()[game.width * (credit_y - 5) + i] = Color::rgb(128, 0, 0);
         }
 
         // Draw aliens
