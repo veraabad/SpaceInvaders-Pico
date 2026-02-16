@@ -1,7 +1,6 @@
 /**
- * @file  example/main.cpp
- * @brief ILI9163C demo – exercises all drawing primitives, bitmap push,
- *        text rendering, rotation, and colour utilities.
+ * @file  main.cpp
+ * @brief SpaceInvaders clone on raspbery pi pico
  *
  * Default wiring (SPI0):
  *   MOSI → GP19    SCLK → GP18
@@ -32,9 +31,9 @@ static constexpr uint8_t PIN_FIRE   = 14;
 
 // ── Global display object ────────────────────────────────────────────────────
 ILI9163C tft(spi0, PIN_SCK, PIN_MOSI, PIN_CS, PIN_DC, PIN_RST, PIN_BL);
-bool gameRunning = false;
-int moveDir = 0;
-bool firePressed = 0;
+bool game_running = false;
+int move_dir = 0;
+bool fire_pressed = 0;
 size_t score = 0;
 
 static void init_keys() {
@@ -53,13 +52,13 @@ static void init_keys() {
 
 static void poll_keys() {
     if (!gpio_get(PIN_LEFT)) {
-        moveDir = -1;
+        move_dir = -1;
     } else if (!gpio_get(PIN_RIGHT)) {
-        moveDir = 1;
+        move_dir = 1;
     } else if (!gpio_get(PIN_FIRE)) {
-        firePressed = true;
+        fire_pressed = true;
     } else {
-        moveDir = 0;
+        move_dir = 0;
     }
 }
 
@@ -119,7 +118,7 @@ int main() {
 
     uint16_t clearColor = Color::rgb(0, 128, 0);
 
-    gameRunning = true;
+    game_running = true;
 
     int playerMoveDir = 0;
     // Game loop
@@ -229,7 +228,7 @@ int main() {
             ++bi;
         }
 
-        playerMoveDir = 2 * moveDir;
+        playerMoveDir = 2 * move_dir;
 
         if (playerMoveDir != 0) {
             if (game.player.x + sprites::PLAYER_SPRITE.width + playerMoveDir >= game.width) {
@@ -241,13 +240,13 @@ int main() {
             }
         }
 
-        if (firePressed && game.numBullets < GAME_MAX_BULLETS) {
+        if (fire_pressed && game.numBullets < GAME_MAX_BULLETS) {
             game.bullets[game.numBullets].x = game.player.x + sprites::PLAYER_SPRITE.width / 2;
             game.bullets[game.numBullets].y = game.player.y + sprites::PLAYER_SPRITE.height;
             game.bullets[game.numBullets].dir = -2;
             ++game.numBullets;
         }
-        firePressed = false;
+        fire_pressed = false;
 
         poll_keys();
     }
