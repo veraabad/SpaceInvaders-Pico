@@ -531,6 +531,11 @@ void ILI9163C::drawBitmap(int16_t x, int16_t y, int16_t w, int16_t h,
     _cs_high();
 }
 
+void ILI9163C::drawBuffer(data::Buffer* buffer) {
+    drawBitmap(0, 0, buffer->getWidth(), buffer->getHeight(), buffer->getData());
+}
+
+
 // ─────────────────────────────────────────────────────────────────────────────
 //  Text
 // ─────────────────────────────────────────────────────────────────────────────
