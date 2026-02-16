@@ -37,12 +37,6 @@ int moveDir = 0;
 bool firePressed = 0;
 size_t score = 0;
 
-static void clear_screen(data::Buffer* buffer) {
-    buffer->clear(Color::rgb(0, 128, 0));
-    tft.drawBuffer(buffer);
-    sleep_ms(2000);
-}
-
 static void init_keys() {
     gpio_init(PIN_RIGHT);
     gpio_set_dir(PIN_RIGHT, GPIO_IN);
@@ -55,6 +49,18 @@ static void init_keys() {
     gpio_init(PIN_FIRE);
     gpio_set_dir(PIN_FIRE, GPIO_IN);
     gpio_pull_up(PIN_FIRE);
+}
+
+static void poll_keys() {
+    if (!gpio_get(PIN_LEFT)) {
+        moveDir = -1;
+    } else if (!gpio_get(PIN_RIGHT)) {
+        moveDir = 1;
+    } else if (!gpio_get(PIN_FIRE)) {
+        firePressed = true;
+    } else {
+        moveDir = 0;
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -238,28 +244,11 @@ int main() {
         if (firePressed && game.numBullets < GAME_MAX_BULLETS) {
             game.bullets[game.numBullets].x = game.player.x + sprites::PLAYER_SPRITE.width / 2;
             game.bullets[game.numBullets].y = game.player.y + sprites::PLAYER_SPRITE.height;
-            game.bullets[game.numBullets].dir = 2;
+            game.bullets[game.numBullets].dir = -2;
             ++game.numBullets;
         }
         firePressed = false;
 
-        // TODO: add polling for key press
-    }
-
-    uint8_t sequence = 0;
-
-    while (true) {
-        if (!gpio_get(PIN_LEFT)) {
-            if (sequence == 0 ) {
-                sequence = 8;
-            } else {
-                sequence = (sequence - 1) % 8;
-            }
-        } else if (!gpio_get(PIN_RIGHT)) {
-            sequence = (sequence + 1) % 8;
-        } else if (!gpio_get(PIN_FIRE)) {
-            sequence = 0;
-        }
-        clear_screen(&buffer);
+        poll_keys();
     }
 }
