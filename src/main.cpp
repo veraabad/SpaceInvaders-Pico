@@ -135,6 +135,15 @@ int main() {
     game_running = true;
 
     int playerMoveDir = 0;
+
+    uint64_t last_time = time_us_64();
+    uint32_t frame_count = 0;
+    uint64_t current_time = 0;
+    uint64_t elapsed = 0;
+    uint64_t print_timer = last_time;
+    float avg_fps = 0;
+    float fps = 0;
+
     // Game loop
     while (true) {
         buffer.clear(clearColor);
@@ -263,5 +272,26 @@ int main() {
         fire_pressed = false;
 
         poll_keys();
+
+        frame_count++;
+
+        current_time = time_us_64();
+        elapsed = current_time - last_time;
+
+        // Collect FPS
+        if (elapsed >= 1000000) { // 1 second
+            fps = frame_count / (elapsed / 1000000.0f);
+            avg_fps = (avg_fps + fps) / 2;
+
+            frame_count = 0;
+            last_time = current_time;
+        }
+
+        // Print every 10 seconds
+        if (current_time - print_timer  >= 10000000ULL) {
+            printf("Average FPS (10s): %.2f\n", avg_fps);
+            print_timer = current_time;
+            avg_fps = fps;
+        }
     }
 }
