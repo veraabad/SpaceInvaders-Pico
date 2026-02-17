@@ -1,6 +1,6 @@
 /**
  * @file  ili9163c.cpp
- * @brief ILI9163C 128×128 TFT driver for Raspberry Pi Pico (hardware SPI).
+ * @brief ILI9163C 128×160 TFT driver for Raspberry Pi Pico (hardware SPI with DMA).
  */
 
 #include "ili9163c.hpp"
@@ -22,7 +22,8 @@ ILI9163C::ILI9163C(spi_inst_t* spi_inst,
       _sck(sck_pin), _mosi(mosi_pin),
       _cs(cs_pin),   _dc(dc_pin),
       _rst(rst_pin), _bl(bl_pin),
-      _spi_speed(spi_speed)
+      _spi_speed(spi_speed),
+      _dma_channel(-1)
 {}
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -47,6 +48,9 @@ void ILI9163C::begin() {
     if (_bl != 0xFF) {
         gpio_init(_bl);  gpio_set_dir(_bl,  GPIO_OUT); gpio_put(_bl,  1);
     }
+
+    // Initialize DMA
+    _initDMA();
 
     reset();
     _initRegisters();
@@ -76,6 +80,49 @@ void ILI9163C::displayOn(bool on) {
 
 void ILI9163C::setBacklight(bool on) {
     if (_bl != 0xFF) gpio_put(_bl, on ? 1 : 0);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  DMA initialization
+// ─────────────────────────────────────────────────────────────────────────────
+void ILI9163C::_initDMA() {
+    // Claim a DMA channel
+    _dma_channel = dma_claim_unused_channel(true);
+    
+    // Get default configuration
+    dma_channel_config c = dma_channel_get_default_config(_dma_channel);
+    
+    // Setup DMA configuration
+    channel_config_set_transfer_data_size(&c, DMA_SIZE_8);  // 8-bit transfers
+    channel_config_set_dreq(&c, spi_get_dreq(_spi, true));  // Paced by SPI TX
+    channel_config_set_read_increment(&c, true);            // Increment read address
+    channel_config_set_write_increment(&c, false);          // Don't increment write (always SPI DR)
+    
+    // Configure the channel (we'll set addresses and count per transfer)
+    dma_channel_configure(
+        _dma_channel,
+        &c,
+        &spi_get_hw(_spi)->dr,  // Write to SPI data register
+        nullptr,                // Read address (set per transfer)
+        0,                      // Transfer count (set per transfer)
+        false                   // Don't start yet
+    );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  DMA Management
+// ─────────────────────────────────────────────────────────────────────────────
+void ILI9163C::waitDMA() {
+    if (_dma_channel >= 0) {
+        dma_channel_wait_for_finish_blocking(_dma_channel);
+    }
+}
+
+bool ILI9163C::isDMABusy() {
+    if (_dma_channel >= 0) {
+        return dma_channel_is_busy(_dma_channel);
+    }
+    return false;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -146,7 +193,7 @@ void ILI9163C::_initRegisters() {
         _sendCmdData(ILI9163C_CMD::GMCTRN1, d, 16);
     }
 
-    // Column and row address set (full 128×128)
+    // Column and row address set (full display)
     _setWindow(0, 0, DISPLAY_WIDTH - 1, DISPLAY_HEIGHT - 1);
 
     // Normal display mode on
@@ -210,48 +257,117 @@ void ILI9163C::_writeWord(uint16_t w) {
 }
 
 void ILI9163C::_writeWords(const uint16_t* buf, size_t count) {
-    // Byte-swap inline; use a small staging buffer for efficiency
-    static constexpr size_t CHUNK = 64;
-    uint8_t stage[CHUNK * 2];
+    // Use DMA for large transfers
+    if (count > 64) {
+        _writeWordsDMA(buf, count);
+    } else {
+        // Small transfers: use blocking method with staging buffer
+        static constexpr size_t CHUNK = 64;
+        uint8_t stage[CHUNK * 2];
 
-    while (count > 0) {
-        size_t n = (count < CHUNK) ? count : CHUNK;
-        for (size_t i = 0; i < n; ++i) {
-            stage[i * 2]     = static_cast<uint8_t>(buf[i] >> 8);
-            stage[i * 2 + 1] = static_cast<uint8_t>(buf[i] & 0xFF);
+        while (count > 0) {
+            size_t n = (count < CHUNK) ? count : CHUNK;
+            for (size_t i = 0; i < n; ++i) {
+                stage[i * 2]     = static_cast<uint8_t>(buf[i] >> 8);
+                stage[i * 2 + 1] = static_cast<uint8_t>(buf[i] & 0xFF);
+            }
+            spi_write_blocking(_spi, stage, n * 2);
+            buf   += n;
+            count -= n;
         }
-        spi_write_blocking(_spi, stage, n * 2);
-        buf   += n;
-        count -= n;
+    }
+}
+
+void ILI9163C::_writeWordsDMA(const uint16_t* buf, size_t count) {
+    // Wait for any previous DMA to complete
+    waitDMA();
+    
+    // Process in chunks using DMA buffer
+    while (count > 0) {
+        size_t chunk = (count < DMA_BUFFER_SIZE) ? count : DMA_BUFFER_SIZE;
+        
+        // Convert uint16_t to bytes (big-endian)
+        for (size_t i = 0; i < chunk; ++i) {
+            _dma_buffer[i * 2]     = static_cast<uint8_t>(buf[i] >> 8);
+            _dma_buffer[i * 2 + 1] = static_cast<uint8_t>(buf[i] & 0xFF);
+        }
+        
+        // Start DMA transfer
+        dma_channel_set_read_addr(_dma_channel, _dma_buffer, false);
+        dma_channel_set_trans_count(_dma_channel, chunk * 2, true);
+        
+        // Wait for this chunk to complete before next iteration
+        dma_channel_wait_for_finish_blocking(_dma_channel);
+        
+        buf   += chunk;
+        count -= chunk;
     }
 }
 
 void ILI9163C::_fillWords(uint16_t value, size_t count) {
-    // Build a two-byte pattern and blast it out
+    // Use DMA for large fills
+    if (count > 64) {
+        _fillWordsDMA(value, count);
+    } else {
+        // Small fills: use blocking method
+        uint8_t hi = static_cast<uint8_t>(value >> 8);
+        uint8_t lo = static_cast<uint8_t>(value & 0xFF);
+
+        static constexpr size_t CHUNK = 64;
+        uint8_t stage[CHUNK * 2];
+        for (size_t i = 0; i < CHUNK; ++i) { 
+            stage[i*2] = hi; 
+            stage[i*2+1] = lo; 
+        }
+
+        while (count >= CHUNK) {
+            spi_write_blocking(_spi, stage, CHUNK * 2);
+            count -= CHUNK;
+        }
+        if (count > 0) {
+            spi_write_blocking(_spi, stage, count * 2);
+        }
+    }
+}
+
+void ILI9163C::_fillWordsDMA(uint16_t value, size_t count) {
+    // Wait for any previous DMA to complete
+    waitDMA();
+    
+    // Fill DMA buffer with the repeated pattern
     uint8_t hi = static_cast<uint8_t>(value >> 8);
     uint8_t lo = static_cast<uint8_t>(value & 0xFF);
-
-    static constexpr size_t CHUNK = 64;
-    uint8_t stage[CHUNK * 2];
-    for (size_t i = 0; i < CHUNK; ++i) { stage[i*2] = hi; stage[i*2+1] = lo; }
-
-    while (count >= CHUNK) {
-        spi_write_blocking(_spi, stage, CHUNK * 2);
-        count -= CHUNK;
+    
+    for (size_t i = 0; i < DMA_BUFFER_SIZE; ++i) {
+        _dma_buffer[i * 2]     = hi;
+        _dma_buffer[i * 2 + 1] = lo;
     }
-    if (count > 0) spi_write_blocking(_spi, stage, count * 2);
+    
+    // Send in chunks
+    while (count > 0) {
+        size_t chunk = (count < DMA_BUFFER_SIZE) ? count : DMA_BUFFER_SIZE;
+        
+        // Start DMA transfer
+        dma_channel_set_read_addr(_dma_channel, _dma_buffer, false);
+        dma_channel_set_trans_count(_dma_channel, chunk * 2, true);
+        
+        // Wait for this chunk to complete
+        dma_channel_wait_for_finish_blocking(_dma_channel);
+        
+        count -= chunk;
+    }
 }
 
 void ILI9163C::_sendCmd(uint8_t cmd) {
     _cs_low();
-    _dc_low();
+    _dc_low();   // Command mode
     _writeByte(cmd);
     _cs_high();
 }
 
 void ILI9163C::_sendData8(uint8_t data) {
     _cs_low();
-    _dc_high();
+    _dc_high();  // Data mode
     _writeByte(data);
     _cs_high();
 }
@@ -264,39 +380,38 @@ void ILI9163C::_sendData16(uint16_t data) {
 }
 
 void ILI9163C::_sendCmdData(uint8_t cmd, const uint8_t* data, size_t len) {
-    _cs_low();
-    _dc_low();
-    _writeByte(cmd);
+    _sendCmd(cmd);
     if (len > 0) {
+        _cs_low();
         _dc_high();
         _writeBytes(data, len);
+        _cs_high();
     }
-    _cs_high();
 }
 
 void ILI9163C::_setWindow(int16_t x0, int16_t y0, int16_t x1, int16_t y1) {
     // Column address set
     {
-        const uint8_t d[] = {
+        uint8_t buf[4] = {
             static_cast<uint8_t>(x0 >> 8), static_cast<uint8_t>(x0 & 0xFF),
             static_cast<uint8_t>(x1 >> 8), static_cast<uint8_t>(x1 & 0xFF)
         };
-        _sendCmdData(ILI9163C_CMD::CASET, d, 4);
+        _sendCmdData(ILI9163C_CMD::CASET, buf, 4);
     }
     // Row address set
     {
-        const uint8_t d[] = {
+        uint8_t buf[4] = {
             static_cast<uint8_t>(y0 >> 8), static_cast<uint8_t>(y0 & 0xFF),
             static_cast<uint8_t>(y1 >> 8), static_cast<uint8_t>(y1 & 0xFF)
         };
-        _sendCmdData(ILI9163C_CMD::RASET, d, 4);
+        _sendCmdData(ILI9163C_CMD::RASET, buf, 4);
     }
-    // RAM write
+    // Memory write
     _sendCmd(ILI9163C_CMD::RAMWR);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  Drawing Primitives
+//  Drawing primitives
 // ─────────────────────────────────────────────────────────────────────────────
 
 void ILI9163C::fillScreen(uint16_t colour) {
@@ -313,53 +428,50 @@ void ILI9163C::drawPixel(int16_t x, int16_t y, uint16_t colour) {
 }
 
 void ILI9163C::drawHLine(int16_t x, int16_t y, int16_t w, uint16_t colour) {
-    if (y < 0 || y >= _height || x >= _width || w <= 0) return;
+    if (y < 0 || y >= _height || w <= 0) return;
     if (x < 0) { w += x; x = 0; }
-    if (x + w > _width)  w = _width - x;
+    if (x >= _width) return;
+    if (x + w > _width) w = _width - x;
     if (w <= 0) return;
 
     _setWindow(x, y, x + w - 1, y);
     _cs_low();
     _dc_high();
-    _fillWords(colour, static_cast<size_t>(w));
+    _fillWords(colour, w);
     _cs_high();
 }
 
 void ILI9163C::drawVLine(int16_t x, int16_t y, int16_t h, uint16_t colour) {
-    if (x < 0 || x >= _width || y >= _height || h <= 0) return;
+    if (x < 0 || x >= _width || h <= 0) return;
     if (y < 0) { h += y; y = 0; }
+    if (y >= _height) return;
     if (y + h > _height) h = _height - y;
     if (h <= 0) return;
 
     _setWindow(x, y, x, y + h - 1);
     _cs_low();
     _dc_high();
-    _fillWords(colour, static_cast<size_t>(h));
+    _fillWords(colour, h);
     _cs_high();
 }
 
-// Bresenham line
-void ILI9163C::drawLine(int16_t x0, int16_t y0,
-                         int16_t x1, int16_t y1,
+void ILI9163C::drawLine(int16_t x0, int16_t y0, int16_t x1, int16_t y1,
                          uint16_t colour) {
-    // Use fast H/V paths where possible
-    if (y0 == y1) { drawHLine(x0 < x1 ? x0 : x1, y0, abs(x1 - x0) + 1, colour); return; }
-    if (x0 == x1) { drawVLine(x0, y0 < y1 ? y0 : y1, abs(y1 - y0) + 1, colour); return; }
+    // Fast horizontal/vertical
+    if (x0 == x1) { drawVLine(x0, (y0 < y1) ? y0 : y1, abs(y1 - y0) + 1, colour); return; }
+    if (y0 == y1) { drawHLine((x0 < x1) ? x0 : x1, y0, abs(x1 - x0) + 1, colour); return; }
 
-    bool steep = abs(y1 - y0) > abs(x1 - x0);
-    if (steep)   { _swap(x0, y0); _swap(x1, y1); }
-    if (x0 > x1) { _swap(x0, x1); _swap(y0, y1); }
+    // Bresenham
+    int16_t dx = abs(x1 - x0), sx = (x0 < x1) ? 1 : -1;
+    int16_t dy = abs(y1 - y0), sy = (y0 < y1) ? 1 : -1;
+    int16_t err = ((dx > dy) ? dx : -dy) / 2, e2;
 
-    int16_t dx = x1 - x0;
-    int16_t dy = abs(y1 - y0);
-    int16_t err = dx / 2;
-    int16_t ystep = (y0 < y1) ? 1 : -1;
-
-    for (; x0 <= x1; ++x0) {
-        if (steep) drawPixel(y0, x0, colour);
-        else        drawPixel(x0, y0, colour);
-        err -= dy;
-        if (err < 0) { y0 += ystep; err += dx; }
+    while (true) {
+        drawPixel(x0, y0, colour);
+        if (x0 == x1 && y0 == y1) break;
+        e2 = err;
+        if (e2 > -dx) { err -= dy; x0 += sx; }
+        if (e2 <  dy) { err += dx; y0 += sy; }
     }
 }
 

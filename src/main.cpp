@@ -1,6 +1,6 @@
 /**
  * @file  main.cpp
- * @brief SpaceInvaders clone on raspbery pi pico
+ * @brief SpaceInvaders clone on raspbery pi pico with DMA display
  *
  * Default wiring (SPI0):
  *   MOSI → GP19    SCLK → GP18
@@ -83,7 +83,7 @@ int main() {
     stdio_init_all();
     sleep_ms(200);  // settle
 
-    printf("ILI9163C library demo starting...\n");
+    printf("ILI9163C library demo starting with DMA...\n");
 
     tft.begin();
     tft.setBacklight(true);
@@ -143,6 +143,8 @@ int main() {
     uint64_t print_timer = last_time;
     float avg_fps = 0;
     float fps = 0;
+
+    printf("Starting game loop (DMA-accelerated rendering)...\n");
 
     // Game loop
     while (true) {
@@ -207,7 +209,13 @@ int main() {
             }
         }
 
+        // Send buffer to display using DMA
+        // Note: drawBuffer will use DMA for large transfers automatically
         tft.drawBuffer(&buffer);
+
+        // Optional: You can continue processing while DMA completes
+        // For this game, we wait to ensure frame timing is consistent
+        // tft.waitDMA();
 
         // Update deathCounters
         for (size_t ai = 0; ai < game.numAliens; ++ai) {

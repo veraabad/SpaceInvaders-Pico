@@ -30,6 +30,7 @@ target_link_libraries(ili9163c PUBLIC
     pico_stdlib
     hardware_spi
     hardware_gpio
+    hardware_dma
 )
 
 # ── Example executable ────────────────────────────────────────────────────────

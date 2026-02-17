@@ -4,6 +4,7 @@
 #include <cstring>
 #include "hardware/spi.h"
 #include "hardware/gpio.h"
+#include "hardware/dma.h"
 #include "pico/stdlib.h"
 #include "data/data.hpp"
 
@@ -113,11 +114,11 @@ struct Font {
 };
 
 // ─────────────────────────────────────────────
-//  ILI9163C driver
+//  ILI9163C driver with DMA support
 // ─────────────────────────────────────────────
 
 /**
- * @brief Hardware-SPI driver for the ILI9163C 128×128 TFT controller.
+ * @brief Hardware-SPI driver for the ILI9163C 128×160 TFT controller with DMA.
  *
  * Typical wiring (Pico default SPI0):
  *   MOSI → GP19  (SPI0 TX)
@@ -200,6 +201,18 @@ public:
 
     void drawBuffer(data::Buffer* buffer);
 
+    // ── DMA management ──────────────────────────────────────────────────
+    /**
+     * @brief Wait for any pending DMA transfer to complete.
+     */
+    void waitDMA();
+    
+    /**
+     * @brief Check if DMA transfer is still in progress.
+     * @return true if DMA is busy, false if idle.
+     */
+    bool isDMABusy();
+
     // ── text ────────────────────────────────────────────────────────────
     void setFont(const Font* font);
     void setTextColor(uint16_t fg, uint16_t bg = Color::BLACK);
@@ -219,6 +232,13 @@ private:
     spi_inst_t* _spi;
     uint8_t     _sck, _mosi, _cs, _dc, _rst, _bl;
     uint32_t    _spi_speed;
+
+    // DMA channels
+    int _dma_channel;
+    
+    // DMA buffer for converting uint16_t to bytes
+    static constexpr size_t DMA_BUFFER_SIZE = 256;  // Words
+    uint8_t _dma_buffer[DMA_BUFFER_SIZE * 2];
 
     // Logical dimensions (swap with rotation)
     int16_t  _width  = DISPLAY_WIDTH;
@@ -242,7 +262,9 @@ private:
     void     _writeBytes(const uint8_t* buf, size_t len);
     void     _writeWord(uint16_t w);
     void     _writeWords(const uint16_t* buf, size_t count);
+    void     _writeWordsDMA(const uint16_t* buf, size_t count);
     void     _fillWords(uint16_t value, size_t count);
+    void     _fillWordsDMA(uint16_t value, size_t count);
 
     void     _sendCmd(uint8_t cmd);
     void     _sendData8(uint8_t data);
@@ -253,6 +275,7 @@ private:
 
     // ── init helpers ─────────────────────────────────────────────────────
     void     _initRegisters();
+    void     _initDMA();
 
     // ── geometry helpers ─────────────────────────────────────────────────
     void     _drawCircleHelper(int16_t cx, int16_t cy, int16_t r,
