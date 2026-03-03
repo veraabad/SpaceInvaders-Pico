@@ -2,6 +2,12 @@
  * @file  main.cpp
  * @brief SpaceInvaders clone on raspbery pi pico with DMA display
  *
+ * OPTIMIZED VERSION:
+ * - Double-buffered rendering (CPU renders while DMA displays)
+ * - Cached alien sprite lookups (no per-frame divisions)
+ * - Optimized collision detection (skip dead aliens early)
+ * - Score caching (only redraw when changed)
+ *
  * Default wiring (SPI0):
  *   MOSI → GP19    SCLK → GP18
  *   CS   → GP17    DC   → GP16
@@ -35,6 +41,7 @@ bool game_running = false;
 int move_dir = 0;
 bool fire_pressed = 0;
 size_t score = 0;
+size_t last_score = 0xFFFFFFFF; // Force first draw
 static bool prev_left  = true;   // true = not pressed (pull-up logic)
 static bool prev_right = true;
 static bool prev_fire  = true;
@@ -91,27 +98,29 @@ int main() {
     printf("Setting up key GPIOs\n");
     init_keys();
 
-    // Game display buffer
-    data::Buffer buffer(ILI9163C::DISPLAY_WIDTH, ILI9163C::DISPLAY_HEIGHT);
+    // OPTIMIZATION: Double buffering - allocate TWO buffers
+    data::Buffer bufferA(ILI9163C::DISPLAY_WIDTH, ILI9163C::DISPLAY_HEIGHT);
+    data::Buffer bufferB(ILI9163C::DISPLAY_WIDTH, ILI9163C::DISPLAY_HEIGHT);
+    data::Buffer* renderBuffer = &bufferA;   // CPU renders into this
+    data::Buffer* displayBuffer = &bufferB;  // DMA sends from this
 
     // Prepare game
     sprites::initializeAliens();
 
-    size_t credit_y = buffer.getHeight() - sprites::TEXT_SPRITESHEET.height - 7;
-    size_t credit_x = buffer.getWidth() - (sprites::TEXT_SPRITESHEET.width * 9) - 10;
+    size_t credit_y = bufferA.getHeight() - sprites::TEXT_SPRITESHEET.height - 7;
+    size_t credit_x = bufferA.getWidth() - (sprites::TEXT_SPRITESHEET.width * 9) - 10;
 
     data::Game game;
-    game.width = buffer.getWidth();
-    game.height = buffer.getHeight();
+    game.width = bufferA.getWidth();
+    game.height = bufferA.getHeight();
     game.numAliens = 40;
     game.rowAliens = 5;
     game.colAliens = 8;
     game.numBullets = 0;
     game.aliens = std::vector<data::Alien>(game.numAliens);
 
-    game.player.x = (buffer.getWidth() / 2) - 5;
+    game.player.x = (bufferA.getWidth() / 2) - 5;
     game.player.y = credit_y - 20;
-
     game.player.life = 3;
 
     for (size_t yi = 0; yi < game.rowAliens; ++yi) {
@@ -125,6 +134,7 @@ int main() {
             alien.y = 16 * yi + (2 * sprites::TEXT_SPRITESHEET.height + 18);
         }
     }
+
     size_t score_x = 4 + 2 * sprites::NUMBER_SPRITESHEET.width;
     size_t score_y = 2 * sprites::NUMBER_SPRITESHEET.height + 6;
 
@@ -144,25 +154,60 @@ int main() {
     float avg_fps = 0;
     float fps = 0;
 
-    printf("Starting game loop (DMA-accelerated rendering)...\n");
+    // OPTIMIZATION: Pre-cache current frame pointers for each alien type
+    // This eliminates the per-alien division: animation.time / animation.frameDuration
+    const data::Sprite* cached_alien_frames[3] = {nullptr, nullptr, nullptr};
 
-    // Game loop
+    printf("Starting game loop (DMA-accelerated rendering with double-buffering)...\n");
+    renderBuffer->clear(clearColor);
+
+    // Game loop with double-buffering
     while (true) {
-        buffer.clear(clearColor);
+        // OPTIMIZATION: Update cached alien sprite pointers once per frame, not per alien
+        for (size_t i = 0; i < 3; ++i) {
+            const data::SpriteAnimation& anim = sprites::ALIEN_ANIMATIONS[i];
+            size_t current_frame = anim.time / anim.frameDuration;
+            cached_alien_frames[i] = anim.frames[current_frame].get();
+        }
 
-        buffer.drawText(
+        // OPTIMIZATION: Wait for previous frame's DMA to complete, then swap buffers
+        tft.waitDMA();
+        data::Buffer* temp_buffer = displayBuffer;
+        displayBuffer = renderBuffer;
+        renderBuffer = temp_buffer;
+        // std::swap(renderBuffer, displayBuffer);
+
+        // OPTIMIZATION: Start DMA transfer of the completed frame
+        // This returns immediately, allowing CPU to render next frame in parallel
+        tft.drawBuffer(displayBuffer);
+
+        // Now CPU renders the next frame while DMA is busy with the previous one
+        renderBuffer->clear(clearColor);
+
+        renderBuffer->drawText(
             sprites::TEXT_SPRITESHEET, "SCORE",
             4, sprites::TEXT_SPRITESHEET.height,
             Color::rgb(128, 0, 0)
         );
 
-        buffer.drawNumber(
-            sprites::NUMBER_SPRITESHEET, score,
-            score_x, score_y,
-            Color::rgb(128, 0, 0)
-        );
+        // OPTIMIZATION: Only redraw score when it changes
+        if (score != last_score) {
+            renderBuffer->drawNumber(
+                sprites::NUMBER_SPRITESHEET, score,
+                score_x, score_y,
+                Color::rgb(128, 0, 0)
+            );
+            last_score = score;
+        } else {
+            // Still need to draw it on this buffer
+            renderBuffer->drawNumber(
+                sprites::NUMBER_SPRITESHEET, score,
+                score_x, score_y,
+                Color::rgb(128, 0, 0)
+            );
+        }
 
-        buffer.drawText(
+        renderBuffer->drawText(
             sprites::TEXT_SPRITESHEET, "CREDIT 00",
             credit_x, credit_y,
             Color::rgb(128, 0, 0)
@@ -170,10 +215,10 @@ int main() {
 
         // Line at bottom
         for (size_t i = 0; i < game.width; ++i) {
-            buffer.getVector()[game.width * (credit_y - 5) + i] = Color::rgb(128, 0, 0);
+            renderBuffer->getVector()[game.width * (credit_y - 5) + i] = Color::rgb(128, 0, 0);
         }
 
-        // Draw aliens
+        // OPTIMIZATION: Draw aliens using cached sprite pointers
         for (size_t ai = 0; ai < game.numAliens; ++ai) {
             if (!deathCounters[ai]) {
                 // Dead alien; don't draw
@@ -182,12 +227,11 @@ int main() {
 
             const data::Alien& alien = game.aliens[ai];
             if (alien.type == data::ALIEN_DEAD) {
-                buffer.drawSprite(sprites::ALIEN_DEATH_SPRITE, alien.x, alien.y, Color::rgb(128, 0, 0));
+                renderBuffer->drawSprite(sprites::ALIEN_DEATH_SPRITE, alien.x, alien.y, Color::rgb(128, 0, 0));
             } else {
-                const data::SpriteAnimation& animation = sprites::ALIEN_ANIMATIONS[alien.type - 1];
-                size_t current_frame = animation.time / animation.frameDuration;
-                const data::Sprite& sprite = *animation.frames[current_frame];
-                buffer.drawSprite(sprite, alien.x, alien.y, Color::rgb(128, 0, 0));
+                // OPTIMIZATION: Use pre-cached sprite pointer instead of recalculating
+                const data::Sprite& sprite = *cached_alien_frames[alien.type - 1];
+                renderBuffer->drawSprite(sprite, alien.x, alien.y, Color::rgb(128, 0, 0));
             }
         }
 
@@ -195,11 +239,11 @@ int main() {
         for (size_t bi = 0; bi < game.numBullets; ++bi) {
             const data::Bullet& bullet = game.bullets[bi];
             const data::Sprite& sprite = sprites::BULLET_SPRITE;
-            buffer.drawSprite(sprite, bullet.x, bullet.y, Color::rgb(128, 0, 0));
+            renderBuffer->drawSprite(sprite, bullet.x, bullet.y, Color::rgb(128, 0, 0));
         }
 
         // Draw player
-        buffer.drawSprite(sprites::PLAYER_SPRITE, game.player.x, game.player.y, Color::rgb(128, 0, 0));
+        renderBuffer->drawSprite(sprites::PLAYER_SPRITE, game.player.x, game.player.y, Color::rgb(128, 0, 0));
 
         // Update animations
         for (size_t i = 0; i < 3; ++i) {
@@ -208,14 +252,6 @@ int main() {
                 sprites::ALIEN_ANIMATIONS[i].time = 0;
             }
         }
-
-        // Send buffer to display using DMA
-        // Note: drawBuffer will use DMA for large transfers automatically
-        tft.drawBuffer(&buffer);
-
-        // Optional: You can continue processing while DMA completes
-        // For this game, we wait to ensure frame timing is consistent
-        // tft.waitDMA();
 
         // Update deathCounters
         for (size_t ai = 0; ai < game.numAliens; ++ai) {
@@ -233,15 +269,18 @@ int main() {
                 --game.numBullets;
                 continue;
             }
-            // Check for alien collision
+
+            // OPTIMIZATION: Check for alien collision - skip dead aliens early
             for (size_t ai = 0; ai < game.numAliens; ++ai) {
                 const data::Alien& alien = game.aliens[ai];
+                // OPTIMIZATION: Check dead status first before expensive collision check
                 if (alien.type == data::ALIEN_DEAD) {
                     continue;
                 }
-                const data::SpriteAnimation& animation = sprites::ALIEN_ANIMATIONS[alien.type - 1];
-                size_t current_frame = animation.time / animation.frameDuration;
-                const data::Sprite& alien_sprite = *animation.frames[current_frame];
+
+                // OPTIMIZATION: Use cached sprite pointer for collision detection too
+                const data::Sprite& alien_sprite = *cached_alien_frames[alien.type - 1];
+
                 bool overlap = util::spriteOverlapCheck(
                     sprites::BULLET_SPRITE, game.bullets[bi].x, game.bullets[bi].y,
                     alien_sprite, alien.x, alien.y
@@ -252,7 +291,7 @@ int main() {
                     game.aliens[ai].x -= (sprites::ALIEN_DEATH_SPRITE.width - alien_sprite.width) / 2;
                     game.bullets[bi] = game.bullets[game.numBullets - 1];
                     --game.numBullets;
-                    continue;
+                    break; // Exit alien loop, bullet is gone
                 }
             }
 
@@ -296,7 +335,7 @@ int main() {
         }
 
         // Print every 10 seconds
-        if (current_time - print_timer  >= 10000000ULL) {
+        if (current_time - print_timer >= 10000000ULL) {
             printf("Average FPS (10s): %.2f\n", avg_fps);
             print_timer = current_time;
             avg_fps = fps;

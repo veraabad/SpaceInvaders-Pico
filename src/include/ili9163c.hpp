@@ -206,7 +206,7 @@ public:
      * @brief Wait for any pending DMA transfer to complete.
      */
     void waitDMA();
-    
+
     /**
      * @brief Check if DMA transfer is still in progress.
      * @return true if DMA is busy, false if idle.
@@ -235,10 +235,6 @@ private:
 
     // DMA channels
     int _dma_channel;
-    
-    // DMA buffer for converting uint16_t to bytes
-    static constexpr size_t DMA_BUFFER_SIZE = 256;  // Words
-    uint8_t _dma_buffer[DMA_BUFFER_SIZE * 2];
 
     // Logical dimensions (swap with rotation)
     int16_t  _width  = DISPLAY_WIDTH;
